@@ -1,0 +1,113 @@
+---
+- name: Deploy HCL Demo Server to Raspberry Pi
+  hosts: raspi
+  become: yes
+  vars:
+    service_user: hcl-demo
+    service_group: hcl-demo
+    install_dir: /opt/hcl-demo-server
+    data_dir: "{{ install_dir }}/lox-testdata"
+    github_repo: maschmann/hcl-demo-server
+    # github_token must be passed via extra-vars: -e "github_token=..."
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install OpenJDK 21
+      apt:
+        name: openjdk-21-jdk
+        state: present
+
+    - name: Create service group
+      group:
+        name: "{{ service_group }}"
+        state: present
+
+    - name: Create service user
+      user:
+        name: "{{ service_user }}"
+        group: "{{ service_group }}"
+        shell: /bin/false
+        system: yes
+        home: "{{ install_dir }}"
+        create_home: no
+
+    - name: Ensure base installation directory exists
+      file:
+        path: "{{ install_dir }}"
+        state: directory
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        mode: '0755'
+
+    - name: Ensure data directories exist
+      file:
+        path: "{{ data_dir }}/{{ item }}"
+        state: directory
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        mode: '0755'
+      loop:
+        - office
+        - bedroom
+        - livingroom
+        - kitchen
+
+    - name: Get latest release info from GitHub
+      uri:
+        url: "https://api.github.com/repos/{{ github_repo }}/releases/latest"
+        headers:
+          Authorization: "token {{ github_token }}"
+        return_content: yes
+      register: release_info
+      check_mode: no
+
+    - name: Parse asset URL from release info
+      set_fact:
+        asset_url: "{{ release_info.json.assets | selectattr('name', 'search', '.jar$') | map(attribute='url') | first }}"
+        asset_name: "{{ release_info.json.assets | selectattr('name', 'search', '.jar$') | map(attribute='name') | first }}"
+
+    - name: Download latest jar
+      get_url:
+        url: "{{ asset_url }}"
+        dest: "{{ install_dir }}/app.jar"
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        mode: '0644'
+        headers:
+          Authorization: "token {{ github_token }}"
+          Accept: "application/octet-stream"
+        force: yes
+
+    - name: Configure systemd service
+      template:
+        src: templates/hcl-demo-server.service.j2
+        dest: /etc/systemd/system/hcl-demo-server.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Service
+
+    - name: Ensure permissions on data directory (recursive)
+      file:
+        path: "{{ data_dir }}"
+        state: directory
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        recurse: yes
+
+    - name: Enable and start service
+      systemd:
+        name: hcl-demo-server
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+  handlers:
+    - name: Restart Service
+      systemd:
+        name: hcl-demo-server
+        state: restarted

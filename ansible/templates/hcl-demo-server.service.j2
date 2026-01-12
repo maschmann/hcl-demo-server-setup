@@ -1,0 +1,15 @@
+[Unit]
+Description=HCL Demo Server
+After=network.target
+
+[Service]
+Type=simple
+User={{ service_user }}
+Group={{ service_group }}
+WorkingDirectory=/opt/hcl-demo-server
+ExecStart=/usr/bin/java -jar /opt/hcl-demo-server/app.jar
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
