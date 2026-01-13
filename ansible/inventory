@@ -1,2 +1,2 @@
 [raspi]
-raspberrypi.local ansible_user=pi
+192.168.2.228 ansible_user=maschmann

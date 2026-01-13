@@ -11,15 +11,58 @@
     # github_token must be passed via extra-vars: -e "github_token=..."
 
   tasks:
-    - name: Update apt cache
+
+    - name: Perform general system upgrade
       apt:
+        upgrade: dist
         update_cache: yes
         cache_valid_time: 3600
 
-    - name: Install OpenJDK 21
-      apt:
-        name: openjdk-21-jdk
+    - name: Add local public key to authorized_keys
+      authorized_key:
+        user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
         state: present
+        key: "{{ lookup('file', '~/.ssh/marc@aschmann.org.pub') }}"
+
+    - name: Disallow root SSH login
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+        state: present
+      notify: Restart SSH
+
+    - name: Install prerequisites for Temurin
+      apt:
+        name:
+          - wget
+          - apt-transport-https
+          - gpg
+        state: present
+
+    - name: Create keyring directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download Eclipse Adoptium GPG key
+      get_url:
+        url: https://packages.adoptium.net/artifactory/api/gpg/key/public
+        dest: /etc/apt/keyrings/adoptium.asc
+        mode: '0644'
+
+    - name: Add Adoptium repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/adoptium.asc] https://packages.adoptium.net/artifactory/deb {{ ansible_distribution_release }} main"
+        state: present
+        filename: adoptium
+
+    - name: Install Temurin 21 JDK
+      apt:
+        name: temurin-21-jdk
+        state: present
+        update_cache: yes
 
     - name: Create service group
       group:
@@ -30,10 +73,11 @@
       user:
         name: "{{ service_user }}"
         group: "{{ service_group }}"
-        shell: /bin/false
+        shell: /usr/sbin/nologin
         system: yes
         home: "{{ install_dir }}"
         create_home: no
+        state: present
 
     - name: Ensure base installation directory exists
       file:
@@ -56,19 +100,29 @@
         - livingroom
         - kitchen
 
-    - name: Get latest release info from GitHub
+    - name: Get releases from GitHub
       uri:
-        url: "https://api.github.com/repos/{{ github_repo }}/releases/latest"
+        url: "https://api.github.com/repos/{{ github_repo }}/releases"
         headers:
           Authorization: "token {{ github_token }}"
         return_content: yes
-      register: release_info
+      register: releases_response
       check_mode: no
 
-    - name: Parse asset URL from release info
+    - name: Fail if no releases found
+      fail:
+        msg: "No releases found in repository {{ github_repo }}"
+      when: releases_response.json | length == 0
+
+    - name: Parse asset URL from latest release
       set_fact:
-        asset_url: "{{ release_info.json.assets | selectattr('name', 'search', '.jar$') | map(attribute='url') | first }}"
-        asset_name: "{{ release_info.json.assets | selectattr('name', 'search', '.jar$') | map(attribute='name') | first }}"
+        asset_url: "{{ releases_response.json[0].assets | selectattr('name', 'search', '.jar$') | map(attribute='url') | first | default('') }}"
+        asset_name: "{{ releases_response.json[0].assets | selectattr('name', 'search', '.jar$') | map(attribute='name') | first | default('') }}"
+
+    - name: Fail if no jar asset found
+      fail:
+        msg: "No .jar asset found in the latest release"
+      when: asset_url == ''
 
     - name: Download latest jar
       get_url:
@@ -91,6 +145,10 @@
         mode: '0644'
       notify: Restart Service
 
+    - name: Force systemd daemon reload
+      systemd:
+        daemon_reload: yes
+
     - name: Ensure permissions on data directory (recursive)
       file:
         path: "{{ data_dir }}"
@@ -104,10 +162,24 @@
         name: hcl-demo-server
         state: started
         enabled: yes
-        daemon_reload: yes
+
+    - name: Verify service is running
+      command: systemctl status hcl-demo-server
+      register: systemctl_output
+      ignore_errors: yes
+
+    - name: Print service status
+      debug:
+        var: systemctl_output.stdout_lines
 
   handlers:
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted
+
     - name: Restart Service
       systemd:
         name: hcl-demo-server
         state: restarted
+        daemon_reload: yes
