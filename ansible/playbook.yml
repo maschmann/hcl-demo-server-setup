@@ -20,7 +20,7 @@
 
     - name: Add local public key to authorized_keys
       authorized_key:
-        user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
+        user: "{{ ansible_env.SUDO_USER | default('pi') }}"
         state: present
         key: "{{ lookup('file', '~/.ssh/marc@aschmann.org.pub') }}"
 
