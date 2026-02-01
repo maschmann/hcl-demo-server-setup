@@ -4,7 +4,7 @@ This repository contains an Ansible playbook and a Makefile wrapper to automate 
 
 ## What this setup does
 
-*   Connects to a target machine (default: `raspberrypi.local`).
+*   Connects to a target machine (default: `lxc-demo.local`).
 *   Installs **OpenJDK 21**.
 *   Creates a dedicated system user `hcl-demo`.
 *   Sets up the required directory structure under `/opt/hcl-demo-server/lox-testdata` (office, bedroom, livingroom, kitchen).
@@ -24,7 +24,7 @@ The `Makefile` simplifies the Ansible execution.
 
 ### Basic Usage
 
-Run the following command to deploy to `raspberrypi.local` as user `pi`:
+Run the following command to deploy to `lxc-demo.local` as user `pi`:
 
 ```bash
 make install TOKEN=your_github_pat_here
@@ -35,7 +35,7 @@ make install TOKEN=your_github_pat_here
 If your Raspberry Pi has a different IP address or username:
 
 ```bash
-make install TOKEN=your_github_pat_here HOST=192.168.1.100 USER=admin
+make install TOKEN=your_github_pat_here HOST=lxc-demo.local USER=pi
 ```
 
 ### Handling Sudo Passwords
@@ -74,3 +74,7 @@ sudo systemctl restart hcl-demo-server
 # View logs
 journalctl -u hcl-demo-server -f
 ```
+
+## call the ui
+
+open the ui at http://lxc-demo.local:8080 
